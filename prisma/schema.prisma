@@ -109,6 +109,9 @@ model ProductOption {
   
   maxNo     Int     @default(1)
   
+  // ✅ relation جدید
+  orderItemProductOptions OrderItemProductOption[]
+  
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   
@@ -153,17 +156,22 @@ model OrderItem {
 }
 
 model OrderItemProductOption {
-  id          Int       @id @default(autoincrement())
-  orderItemId Int
-  orderItem   OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  id               Int           @id @default(autoincrement())
+  orderItemId      Int
+  orderItem        OrderItem     @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
   
-  optionId    Int
-  option      Option    @relation(fields: [optionId], references: [id])
+  // ✅ فیلد قدیمی رو نگه میداریم
+  optionId         Int?          // nullable کردیم
+  option           Option?       @relation(fields: [optionId], references: [id])
   
-  selection   String    // JSON or simple value
+  // ✅ فیلد جدید رو اضافه میکنیم
+  productOptionId  Int?          // nullable
+  productOption    ProductOption? @relation(fields: [productOptionId], references: [id])
   
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  selection        String
+  
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 }
 
 // ========== ORDER HISTORY ==========

@@ -48,7 +48,7 @@ const authorizeRoles = (...roles) => {
 
 // ========== HELPER FUNCTIONS ==========
 
-// ثبت تاریخچه سفارش
+// ✅ تابع ثبت تاریخچه سفارش (خارج از route ها)
 async function createOrderHistory(
   orderId,
   action,
@@ -56,40 +56,79 @@ async function createOrderHistory(
   oldData,
   newData
 ) {
-  const changes = {};
+  try {
+    console.log(`📝 Creating history for order ${orderId}, action: ${action}`);
 
-  if (oldData) {
-    // مقایسه تغییرات
-    if (oldData.status !== newData.status) {
-      changes.status = { old: oldData.status, new: newData.status };
-    }
-    if (oldData.customerId !== newData.customerId) {
-      changes.customerId = { old: oldData.customerId, new: newData.customerId };
-    }
-    if (oldData.description !== newData.description) {
-      changes.description = {
-        old: oldData.description || '',
-        new: newData.description || '',
-      };
+    // محاسبه تغییرات دقیق
+    const changes = {};
+
+    if (oldData && newData) {
+      // مقایسه status
+      if (oldData.status !== newData.status) {
+        changes.status = {
+          from: oldData.status,
+          to: newData.status,
+        };
+      }
+
+      // مقایسه customerId
+      if (oldData.customerId !== newData.customerId) {
+        changes.customer = {
+          from: oldData.customerId,
+          to: newData.customerId,
+        };
+      }
+
+      // مقایسه description
+      if (oldData.description !== newData.description) {
+        changes.description = {
+          from: oldData.description || '',
+          to: newData.description || '',
+        };
+      }
+
+      // ✅ مقایسه دقیق orderItems
+      const oldItemsCount = oldData.orderItems?.length || 0;
+      const newItemsCount = newData.orderItems?.length || 0;
+
+      if (oldItemsCount !== newItemsCount) {
+        changes.itemsCount = {
+          from: oldItemsCount,
+          to: newItemsCount,
+        };
+      }
+
+      // ✅ بررسی تغییرات در محتوای آیتم‌ها
+      if (oldData.orderItems && newData.orderItems) {
+        const oldItemIds = oldData.orderItems.map((i) => i.productId).sort();
+        const newItemIds = newData.orderItems.map((i) => i.productId).sort();
+
+        if (JSON.stringify(oldItemIds) !== JSON.stringify(newItemIds)) {
+          changes.itemsChanged = true;
+        }
+      }
     }
 
-    const oldItemsCount = oldData.orderItems?.length || 0;
-    const newItemsCount = newData.orderItems?.length || 0;
-    if (oldItemsCount !== newItemsCount) {
-      changes.itemsCount = { old: oldItemsCount, new: newItemsCount };
-    }
+    // ✅ ایجاد رکورد تاریخچه با تمام جزئیات
+    const history = await prisma.orderHistory.create({
+      data: {
+        orderId: parseInt(orderId),
+        action: action,
+        changedBy: changedBy,
+        changedAt: new Date(),
+        oldData: oldData ? JSON.stringify(oldData) : null,
+        newData: JSON.stringify(newData), // ✅ ذخیره کامل وضعیت سفارش
+        changes:
+          Object.keys(changes).length > 0 ? JSON.stringify(changes) : null,
+      },
+    });
+
+    console.log(`✅ History record created: ID=${history.id}`);
+    return history;
+  } catch (error) {
+    console.error('❌ Error creating order history:', error);
+    throw error;
   }
-
-  await prisma.orderHistory.create({
-    data: {
-      orderId,
-      action,
-      changedBy,
-      oldData: oldData ? JSON.stringify(oldData) : null,
-      newData: JSON.stringify(newData),
-      changes: Object.keys(changes).length > 0 ? JSON.stringify(changes) : null,
-    },
-  });
 }
 
 // ========== AUTH ROUTES ==========
@@ -427,7 +466,7 @@ app.delete(
   }
 );
 
-// ========== CUSTOMER ROUTES (✅ کامل و اصلاح شده) ==========
+// ========== CUSTOMER ROUTES ==========
 
 // Get all customers
 app.get('/api/customers', authenticateToken, async (req, res) => {
@@ -487,12 +526,11 @@ app.get('/api/customers', authenticateToken, async (req, res) => {
 app.get('/api/customers/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const type = req.query.type; // individual یا company
+    const type = req.query.type;
 
     console.log('📥 Fetching customer:', { id, type });
 
     if (type === 'company') {
-      // دریافت شرکت
       const company = await prisma.company.findUnique({
         where: { id: parseInt(id) },
       });
@@ -506,7 +544,6 @@ app.get('/api/customers/:id', authenticateToken, async (req, res) => {
         type: 'company',
       });
     } else {
-      // دریافت مشتری حقیقی
       const customer = await prisma.customer.findUnique({
         where: { id: parseInt(id) },
         include: {
@@ -565,7 +602,6 @@ app.post(
       console.log('📥 Creating customer:', req.body);
 
       if (type === 'company') {
-        // ایجاد شرکت
         const company = await prisma.company.create({
           data: {
             name,
@@ -582,7 +618,6 @@ app.post(
           type: 'company',
         });
       } else {
-        // ایجاد مشتری حقیقی
         const customer = await prisma.customer.create({
           data: {
             name,
@@ -652,7 +687,6 @@ app.put(
       console.log('📥 Updating customer:', { id, type, data: req.body });
 
       if (type === 'company') {
-        // ویرایش شرکت
         const company = await prisma.company.update({
           where: { id: parseInt(id) },
           data: {
@@ -670,12 +704,10 @@ app.put(
           type: 'company',
         });
       } else {
-        // حذف contacts قبلی
         await prisma.contact.deleteMany({
           where: { customerId: parseInt(id) },
         });
 
-        // ویرایش مشتری حقیقی
         const customer = await prisma.customer.update({
           where: { id: parseInt(id) },
           data: {
@@ -751,7 +783,7 @@ app.delete(
   }
 );
 
-// ========== OPTION ROUTES (✅ اصلاح شده) ==========
+// ========== OPTION ROUTES ==========
 
 // Get all options
 app.get('/api/options', authenticateToken, async (req, res) => {
@@ -764,7 +796,6 @@ app.get('/api/options', authenticateToken, async (req, res) => {
       },
     });
 
-    // ✅ تبدیل states از JSON string به آرایه
     const parsedOptions = options.map((option) => ({
       ...option,
       states: option.states ? JSON.parse(option.states) : null,
@@ -792,7 +823,6 @@ app.get('/api/options/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'آپشن یافت نشد' });
     }
 
-    // ✅ تبدیل states از JSON string به آرایه
     const parsedOption = {
       ...option,
       states: option.states ? JSON.parse(option.states) : null,
@@ -818,12 +848,10 @@ app.post(
       console.log('📥 POST /api/options');
       console.log('📦 Data:', { title, model, states, description, isActive });
 
-      // ✅ Validation
       if (!title || !model) {
         return res.status(400).json({ error: 'عنوان و نوع آپشن الزامی است' });
       }
 
-      // ✅ چک کردن states برای multiState و countableMultiState
       if (model === 'multiState' || model === 'countableMultiState') {
         if (!states || !Array.isArray(states) || states.length === 0) {
           return res.status(400).json({
@@ -831,7 +859,6 @@ app.post(
           });
         }
 
-        // حذف گزینه‌های خالی
         const filteredStates = states.filter((s) => s && s.trim() !== '');
 
         if (filteredStates.length === 0) {
@@ -841,7 +868,6 @@ app.post(
         }
       }
 
-      // ✅ تبدیل states به JSON string
       const statesToSave =
         model === 'multiState' || model === 'countableMultiState'
           ? JSON.stringify(states.filter((s) => s && s.trim() !== ''))
@@ -859,7 +885,6 @@ app.post(
         },
       });
 
-      // ✅ برگرداندن با states به صورت آرایه
       const response = {
         ...option,
         states: option.states ? JSON.parse(option.states) : null,
@@ -890,12 +915,10 @@ app.put(
       console.log('📥 PUT /api/options/' + id);
       console.log('📦 Data:', { title, model, states, description, isActive });
 
-      // ✅ Validation
       if (!title || !model) {
         return res.status(400).json({ error: 'عنوان و نوع آپشن الزامی است' });
       }
 
-      // ✅ چک کردن states برای multiState و countableMultiState
       if (model === 'multiState' || model === 'countableMultiState') {
         if (!states || !Array.isArray(states) || states.length === 0) {
           return res.status(400).json({
@@ -903,7 +926,6 @@ app.put(
           });
         }
 
-        // حذف گزینه‌های خالی
         const filteredStates = states.filter((s) => s && s.trim() !== '');
 
         if (filteredStates.length === 0) {
@@ -913,7 +935,6 @@ app.put(
         }
       }
 
-      // ✅ تبدیل states به JSON string
       const statesToSave =
         model === 'multiState' || model === 'countableMultiState'
           ? JSON.stringify(states.filter((s) => s && s.trim() !== ''))
@@ -932,7 +953,6 @@ app.put(
         },
       });
 
-      // ✅ برگرداندن با states به صورت آرایه
       const response = {
         ...option,
         states: option.states ? JSON.parse(option.states) : null,
@@ -1100,12 +1120,10 @@ app.put(
       console.log('📥 Updating product:', id);
       console.log('📥 Data:', { name, description, productOptions });
 
-      // حذف productOptions قبلی
       await prisma.productOption.deleteMany({
         where: { productId: parseInt(id) },
       });
 
-      // بروزرسانی محصول با productOptions جدید
       const product = await prisma.product.update({
         where: { id: parseInt(id) },
         data: {
@@ -1149,24 +1167,43 @@ app.delete(
   async (req, res) => {
     try {
       const { id } = req.params;
+      console.log('📥 DELETE /api/products/' + id);
 
+      // ✅ چک کردن که آیا این محصول در سفارشی استفاده شده؟
+      const orderItemsCount = await prisma.orderItem.count({
+        where: { productId: parseInt(id) },
+      });
+
+      if (orderItemsCount > 0) {
+        return res.status(400).json({
+          error: `این محصول در ${orderItemsCount} سفارش استفاده شده است و قابل حذف نیست`,
+          usedInOrders: orderItemsCount,
+        });
+      }
+
+      // ✅ حذف productOptions مرتبط
       await prisma.productOption.deleteMany({
         where: { productId: parseInt(id) },
       });
 
+      // ✅ حذف محصول
       await prisma.product.delete({
         where: { id: parseInt(id) },
       });
 
+      console.log('✅ Product deleted:', id);
       res.json({ message: 'محصول با موفقیت حذف شد' });
     } catch (error) {
       console.error('❌ Error deleting product:', error);
-      res.status(500).json({ error: 'خطا در حذف محصول' });
+      res.status(500).json({
+        error: 'خطا در حذف محصول',
+        details: error.message,
+      });
     }
   }
 );
 
-// ========== ORDER ROUTES (✅ کامل اصلاح شده) ==========
+// ========== ORDER ROUTES ==========
 
 // Get all orders
 app.get('/api/orders', authenticateToken, async (req, res) => {
@@ -1215,7 +1252,6 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
       },
     });
 
-    // ✅ تبدیل به فرمت مورد نیاز Frontend
     const formattedOrders = orders.map((order) => ({
       id: order.id,
       customerId: order.customerId,
@@ -1299,7 +1335,6 @@ app.get('/api/orders/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'سفارش یافت نشد' });
     }
 
-    // ✅ تبدیل به فرمت مورد نیاز Frontend
     const formattedOrder = {
       id: order.id,
       customerId: order.customerId,
@@ -1334,34 +1369,53 @@ app.get('/api/orders/:id', authenticateToken, async (req, res) => {
 });
 
 // Get order history
-app.get('/api/orders/:id/history', authenticateToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-    console.log('📥 GET /api/orders/' + id + '/history');
+app.get(
+  '/api/orders/:id/history',
+  authenticateToken,
+  authorizeRoles('admin', 'manager', 'user'),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
 
-    const history = await prisma.orderHistory.findMany({
-      where: { orderId: parseInt(id) },
-      orderBy: { changedAt: 'desc' },
-    });
+      console.log('📥 GET /api/orders/:id/history');
+      console.log('📦 Order ID:', id);
 
-    const parsedHistory = history.map((h) => ({
-      id: h.id,
-      orderId: h.orderId,
-      action: h.action,
-      changedBy: h.changedBy,
-      changedAt: h.changedAt,
-      oldData: h.oldData ? JSON.parse(h.oldData) : null,
-      newData: JSON.parse(h.newData),
-      changes: h.changes ? JSON.parse(h.changes) : null,
-    }));
+      if (!id || isNaN(parseInt(id))) {
+        return res.status(400).json({ error: 'شناسه سفارش نامعتبر است' });
+      }
 
-    console.log('✅ History fetched:', parsedHistory.length);
-    res.json(parsedHistory);
-  } catch (error) {
-    console.error('❌ Error fetching history:', error);
-    res.status(500).json({ error: 'خطا در دریافت تاریخچه' });
+      const history = await prisma.orderHistory.findMany({
+        where: {
+          orderId: parseInt(id),
+        },
+        orderBy: {
+          changedAt: 'desc',
+        },
+      });
+
+      console.log(`✅ Found ${history.length} history records`);
+
+      const parsedHistory = history.map((h) => ({
+        id: h.id,
+        orderId: h.orderId,
+        action: h.action,
+        changedBy: h.changedBy,
+        changedAt: h.changedAt,
+        oldData: h.oldData ? JSON.parse(h.oldData) : null,
+        newData: h.newData ? JSON.parse(h.newData) : null,
+        changes: h.changes ? JSON.parse(h.changes) : null,
+      }));
+
+      res.status(200).json(parsedHistory);
+    } catch (error) {
+      console.error('❌ Error fetching history:', error);
+      res.status(500).json({
+        error: 'خطا در دریافت تاریخچه',
+        details: error.message,
+      });
+    }
   }
-});
+);
 
 // Create order
 app.post(
@@ -1380,7 +1434,6 @@ app.post(
         itemsCount: orderItems?.length,
       });
 
-      // ✅ Validation
       if (!customerId) {
         return res.status(400).json({ error: 'شناسه مشتری الزامی است' });
       }
@@ -1391,7 +1444,6 @@ app.post(
           .json({ error: 'حداقل یک محصول باید انتخاب شود' });
       }
 
-      // ✅ ایجاد سفارش
       const order = await prisma.order.create({
         data: {
           customerId: parseInt(customerId),
@@ -1400,17 +1452,43 @@ app.post(
           orderTime: Math.floor(Date.now() / 1000),
           createdBy: req.user.username,
           orderItems: {
-            create: orderItems.map((item) => ({
-              productId: parseInt(item.productId),
-              quantity: parseInt(item.quantity),
-              description: item.description || '',
-              orderItemProductOptions: {
-                create: (item.orderItemProductOptions || []).map((opt) => ({
-                  optionId: parseInt(opt.productOptionId),
-                  selection: opt.selection,
-                })),
-              },
-            })),
+            create: orderItems.map((item) => {
+              const orderItemData = {
+                productId: parseInt(item.productId),
+                quantity: parseInt(item.quantity),
+                description: item.description || '',
+              };
+
+              if (
+                item.orderItemProductOptions &&
+                item.orderItemProductOptions.length > 0
+              ) {
+                orderItemData.orderItemProductOptions = {
+                  create: item.orderItemProductOptions.map((opt) => {
+                    let selectionString;
+
+                    if (typeof opt.selection === 'string') {
+                      selectionString = opt.selection;
+                    } else if (typeof opt.selection === 'number') {
+                      selectionString = opt.selection.toString();
+                    } else if (Array.isArray(opt.selection)) {
+                      selectionString = JSON.stringify(opt.selection);
+                    } else if (typeof opt.selection === 'object') {
+                      selectionString = JSON.stringify(opt.selection);
+                    } else {
+                      selectionString = '';
+                    }
+
+                    return {
+                      optionId: parseInt(opt.productOptionId),
+                      selection: selectionString,
+                    };
+                  }),
+                };
+              }
+
+              return orderItemData;
+            }),
           },
         },
         include: {
@@ -1447,13 +1525,18 @@ app.post(
       });
 
       // ✅ ثبت تاریخچه
-      await createOrderHistory(
-        order.id,
-        'created',
-        req.user.username,
-        null,
-        order
-      );
+      try {
+        await createOrderHistory(
+          order.id,
+          'created',
+          req.user?.username || 'system',
+          null,
+          order
+        );
+        console.log('✅ History created');
+      } catch (historyError) {
+        console.warn('⚠️ Failed to create history:', historyError.message);
+      }
 
       console.log('✅ Order created:', order.id);
       res.status(200).json(order);
@@ -1469,23 +1552,23 @@ app.post(
 
 // Update order
 app.put(
-  '/api/orders',
+  '/api/orders/:id',
   authenticateToken,
   authorizeRoles('admin', 'manager', 'user'),
   async (req, res) => {
     try {
-      const { id, customerId, description, status, orderItems } = req.body;
+      const { id } = req.params;
+      const { customerId, description, status, orderItems } = req.body;
 
-      console.log('📥 PUT /api/orders');
+      console.log('📥 PUT /api/orders/:id');
       console.log('📦 Order ID:', id);
 
-      // ✅ Validation
-      if (!id) {
-        return res.status(400).json({ error: 'شناسه سفارش الزامی است' });
+      if (!id || isNaN(parseInt(id))) {
+        return res.status(400).json({ error: 'شناسه سفارش نامعتبر است' });
       }
 
-      if (!customerId) {
-        return res.status(400).json({ error: 'شناسه مشتری الزامی است' });
+      if (!customerId || isNaN(parseInt(customerId))) {
+        return res.status(400).json({ error: 'شناسه مشتری نامعتبر است' });
       }
 
       if (!orderItems || orderItems.length === 0) {
@@ -1494,19 +1577,16 @@ app.put(
           .json({ error: 'حداقل یک محصول باید انتخاب شود' });
       }
 
-      // ✅ دریافت سفارش قبلی (برای تاریخچه)
+      const orderId = parseInt(id);
+
       const oldOrder = await prisma.order.findUnique({
-        where: { id: parseInt(id) },
+        where: { id: orderId },
         include: {
           customer: true,
           orderItems: {
             include: {
               product: true,
-              orderItemProductOptions: {
-                include: {
-                  option: true,
-                },
-              },
+              orderItemProductOptions: true,
             },
           },
         },
@@ -1516,31 +1596,72 @@ app.put(
         return res.status(404).json({ error: 'سفارش یافت نشد' });
       }
 
-      // ✅ حذف orderItems قبلی
+      console.log('✅ Old order found');
+
+      const orderItemIds = oldOrder.orderItems.map((item) => item.id);
+
+      if (orderItemIds.length > 0) {
+        await prisma.orderItemProductOption.deleteMany({
+          where: {
+            orderItemId: {
+              in: orderItemIds,
+            },
+          },
+        });
+      }
+
       await prisma.orderItem.deleteMany({
-        where: { orderId: parseInt(id) },
+        where: { orderId: orderId },
+      });
+      console.log('✅ Old orderItems deleted');
+
+      const newOrderItemsData = orderItems.map((item) => {
+        const orderItemData = {
+          productId: parseInt(item.productId),
+          quantity: parseInt(item.quantity),
+          description: item.description || '',
+        };
+
+        if (
+          item.orderItemProductOptions &&
+          item.orderItemProductOptions.length > 0
+        ) {
+          orderItemData.orderItemProductOptions = {
+            create: item.orderItemProductOptions.map((opt) => {
+              let selectionString;
+
+              if (typeof opt.selection === 'string') {
+                selectionString = opt.selection;
+              } else if (typeof opt.selection === 'number') {
+                selectionString = opt.selection.toString();
+              } else if (Array.isArray(opt.selection)) {
+                selectionString = JSON.stringify(opt.selection);
+              } else if (typeof opt.selection === 'object') {
+                selectionString = JSON.stringify(opt.selection);
+              } else {
+                selectionString = '';
+              }
+
+              return {
+                optionId: parseInt(opt.productOptionId),
+                selection: selectionString,
+              };
+            }),
+          };
+        }
+
+        return orderItemData;
       });
 
-      // ✅ بروزرسانی سفارش
       const updatedOrder = await prisma.order.update({
-        where: { id: parseInt(id) },
+        where: { id: orderId },
         data: {
           customerId: parseInt(customerId),
           description: description || '',
-          status: status,
-          updatedBy: req.user.username,
+          status: status || 'open',
+          updatedBy: req.user?.username || 'system',
           orderItems: {
-            create: orderItems.map((item) => ({
-              productId: parseInt(item.productId),
-              quantity: parseInt(item.quantity),
-              description: item.description || '',
-              orderItemProductOptions: {
-                create: (item.orderItemProductOptions || []).map((opt) => ({
-                  optionId: parseInt(opt.productOptionId),
-                  selection: opt.selection,
-                })),
-              },
-            })),
+            create: newOrderItemsData,
           },
         },
         include: {
@@ -1561,14 +1682,7 @@ app.put(
               },
               orderItemProductOptions: {
                 include: {
-                  option: {
-                    select: {
-                      id: true,
-                      title: true,
-                      model: true,
-                      states: true,
-                    },
-                  },
+                  option: true,
                 },
               },
             },
@@ -1576,23 +1690,32 @@ app.put(
         },
       });
 
-      // ✅ ثبت تاریخچه
-      const action = oldOrder.status !== status ? 'status_changed' : 'updated';
-      await createOrderHistory(
-        parseInt(id),
-        action,
-        req.user.username,
-        oldOrder,
-        updatedOrder
-      );
+      console.log('✅ Order updated successfully');
 
-      console.log('✅ Order updated:', updatedOrder.id);
+      // ✅ ثبت تاریخچه
+      try {
+        const action =
+          oldOrder.status !== status ? 'status_changed' : 'updated';
+        await createOrderHistory(
+          orderId,
+          action,
+          req.user?.username || 'system',
+          oldOrder,
+          updatedOrder
+        );
+        console.log('✅ History created');
+      } catch (historyError) {
+        console.warn('⚠️ Failed to create history:', historyError.message);
+      }
+
       res.status(200).json(updatedOrder);
     } catch (error) {
-      console.error('❌ Error updating order:', error);
+      console.error('❌ Error updating order:');
+      console.error('   Message:', error.message);
+
       res.status(500).json({
         error: 'خطا در بروزرسانی سفارش',
-        details: error.message,
+        message: error.message,
       });
     }
   }
@@ -1628,6 +1751,7 @@ app.delete(
     }
   }
 );
+
 // ========== SERVER START ==========
 
 app.listen(PORT, () => {
