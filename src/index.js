@@ -454,13 +454,25 @@ app.delete(
     try {
       const { id } = req.params;
 
+      console.log('🗑️ DELETE /api/companies/' + id);
+
+      // ✅ بررسی وجود شرکت
+      const company = await prisma.company.findUnique({
+        where: { id: parseInt(id) },
+      });
+
+      if (!company) {
+        return res.status(404).json({ error: 'شرکت یافت نشد' });
+      }
+
       await prisma.company.delete({
         where: { id: parseInt(id) },
       });
 
+      console.log('✅ Company deleted:', id);
       res.json({ message: 'شرکت با موفقیت حذف شد' });
     } catch (error) {
-      console.error(error);
+      console.error('❌ Error deleting company:', error);
       res.status(500).json({ error: 'خطا در حذف شرکت' });
     }
   }
@@ -578,7 +590,7 @@ app.get('/api/customers/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Create customer or company
+// Create customer
 app.post(
   '/api/customers',
   authenticateToken,
@@ -662,7 +674,7 @@ app.post(
   }
 );
 
-// Update customer or company
+// Update customer
 app.put(
   '/api/customers/:id',
   authenticateToken,
@@ -753,7 +765,7 @@ app.put(
   }
 );
 
-// Delete customer or company
+// Delete customer
 app.delete(
   '/api/customers/:id',
   authenticateToken,
@@ -761,20 +773,23 @@ app.delete(
   async (req, res) => {
     try {
       const { id } = req.params;
-      const type = req.query.type;
 
-      console.log('📥 Deleting customer:', { id, type });
+      console.log('🗑️ DELETE /api/customers/' + id);
 
-      if (type === 'company') {
-        await prisma.company.delete({
-          where: { id: parseInt(id) },
-        });
-      } else {
-        await prisma.customer.delete({
-          where: { id: parseInt(id) },
-        });
+      // ✅ بررسی وجود مشتری
+      const customer = await prisma.customer.findUnique({
+        where: { id: parseInt(id) },
+      });
+
+      if (!customer) {
+        return res.status(404).json({ error: 'مشتری یافت نشد' });
       }
 
+      await prisma.customer.delete({
+        where: { id: parseInt(id) },
+      });
+
+      console.log('✅ Customer deleted:', id);
       res.json({ message: 'مشتری با موفقیت حذف شد' });
     } catch (error) {
       console.error('❌ Error deleting customer:', error);
@@ -782,6 +797,275 @@ app.delete(
     }
   }
 );
+
+// ========== CALL ROUTES ==========
+
+// Get all calls
+app.get('/api/calls', authenticateToken, async (req, res) => {
+  try {
+    console.log('📥 GET /api/calls');
+
+    const calls = await prisma.call.findMany({
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            mobile: true,
+            company: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    console.log('✅ Calls fetched:', calls.length);
+    res.json(calls);
+  } catch (error) {
+    console.error('❌ Error fetching calls:', error);
+    res.status(500).json({ error: 'خطا در دریافت تماس‌ها' });
+  }
+});
+
+// Get single call
+app.get('/api/calls/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log('📥 GET /api/calls/' + id);
+
+    const call = await prisma.call.findUnique({
+      where: { id: parseInt(id) },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            mobile: true,
+            company: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!call) {
+      return res.status(404).json({ error: 'تماس یافت نشد' });
+    }
+
+    console.log('✅ Call fetched:', call.id);
+    res.json(call);
+  } catch (error) {
+    console.error('❌ Error fetching call:', error);
+    res.status(500).json({ error: 'خطا در دریافت تماس' });
+  }
+});
+
+// Create call
+app.post(
+  '/api/calls',
+  authenticateToken,
+  authorizeRoles('admin', 'manager', 'user'),
+  async (req, res) => {
+    try {
+      const { customerId, subject, referredTo, description } = req.body;
+
+      console.log('📥 POST /api/calls');
+      console.log('📦 Request body:', req.body);
+      console.log('📦 Data:', { customerId, subject, referredTo, description });
+
+      // ✅ Validation
+      if (!customerId) {
+        console.log('❌ Missing customerId');
+        return res.status(400).json({ error: 'شناسه مشتری الزامی است' });
+      }
+
+      if (!subject) {
+        console.log('❌ Missing subject');
+        return res.status(400).json({ error: 'موضوع تماس الزامی است' });
+      }
+
+      // ✅ بررسی وجود مشتری
+      const customerExists = await prisma.customer.findUnique({
+        where: { id: parseInt(customerId) },
+      });
+
+      if (!customerExists) {
+        console.log('❌ Customer not found:', customerId);
+        return res.status(404).json({ error: 'مشتری یافت نشد' });
+      }
+
+      console.log('✅ Customer found:', customerExists.name);
+
+      // ✅ ایجاد تماس
+      const call = await prisma.call.create({
+        data: {
+          customerId: parseInt(customerId),
+          subject,
+          referredTo: referredTo || null,
+          description: description || null,
+          createdBy: req.user.username,
+        },
+        include: {
+          customer: {
+            select: {
+              id: true,
+              name: true,
+              mobile: true,
+              company: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      console.log('✅ Call created:', call.id);
+      res.status(200).json(call);
+    } catch (error) {
+      console.error('❌ Error creating call:', error);
+      console.error('❌ Error message:', error.message);
+      console.error('❌ Error stack:', error.stack);
+
+      res.status(500).json({
+        error: 'خطا در ایجاد تماس',
+        details: error.message,
+      });
+    }
+  }
+);
+
+// Update call
+app.put(
+  '/api/calls/:id',
+  authenticateToken,
+  authorizeRoles('admin', 'manager', 'user'),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { customerId, subject, referredTo, description } = req.body;
+
+      console.log('📥 PUT /api/calls/' + id);
+      console.log('📦 Data:', { customerId, subject, referredTo, description });
+
+      // ✅ Validation
+      if (!customerId) {
+        return res.status(400).json({ error: 'شناسه مشتری الزامی است' });
+      }
+
+      if (!subject) {
+        return res.status(400).json({ error: 'موضوع تماس الزامی است' });
+      }
+
+      // ✅ بروزرسانی تماس
+      const call = await prisma.call.update({
+        where: { id: parseInt(id) },
+        data: {
+          customerId: parseInt(customerId),
+          subject,
+          referredTo: referredTo || null,
+          description: description || null,
+        },
+        include: {
+          customer: {
+            select: {
+              id: true,
+              name: true,
+              mobile: true,
+              company: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      console.log('✅ Call updated:', call.id);
+      res.json(call);
+    } catch (error) {
+      console.error('❌ Error updating call:', error);
+      res.status(500).json({
+        error: 'خطا در بروزرسانی تماس',
+        details: error.message,
+      });
+    }
+  }
+);
+
+// Delete call
+app.delete(
+  '/api/calls/:id',
+  authenticateToken,
+  authorizeRoles('admin', 'manager'),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      console.log('📥 DELETE /api/calls/' + id);
+
+      const call = await prisma.call.findUnique({
+        where: { id: parseInt(id) },
+      });
+
+      if (!call) {
+        return res.status(404).json({ error: 'تماس یافت نشد' });
+      }
+
+      await prisma.call.delete({
+        where: { id: parseInt(id) },
+      });
+
+      console.log('✅ Call deleted:', id);
+      res.json({ message: 'تماس با موفقیت حذف شد' });
+    } catch (error) {
+      console.error('❌ Error deleting call:', error);
+      res.status(500).json({ error: 'خطا در حذف تماس' });
+    }
+  }
+);
+
+// Get customer calls
+app.get('/api/customers/:id/calls', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log('📥 GET /api/customers/:id/calls');
+
+    const calls = await prisma.call.findMany({
+      where: {
+        customerId: parseInt(id),
+      },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            mobile: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    console.log(`✅ Found ${calls.length} calls for customer ${id}`);
+    res.json(calls);
+  } catch (error) {
+    console.error('❌ Error fetching customer calls:', error);
+    res.status(500).json({ error: 'خطا در دریافت تماس‌های مشتری' });
+  }
+});
 
 // ========== OPTION ROUTES ==========
 

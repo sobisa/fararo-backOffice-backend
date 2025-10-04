@@ -43,16 +43,35 @@ model Customer {
   id          Int       @id @default(autoincrement())
   name        String
   mobile      String?
+  type        String?
   position    String?
   description String?
   companyId   Int?
-  company     Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  
+  company     Company?  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   contacts    Contact[]
   orders      Order[]
-  
+  calls       Call[]
   createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  updatedAt   DateTime  @updatedAt     // ✅ اصلاح شد
+
+  @@index([companyId])
+}
+
+
+// ========== CALLS ==========
+model Call {
+  id            Int       @id @default(autoincrement())
+  customerId    Int
+  customer      Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  subject       String
+  referredTo    String?
+  description   String?
+  createdBy     String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([customerId])
+  @@index([createdAt])
 }
 
 // ========== CONTACTS ==========
@@ -69,7 +88,6 @@ model Contact {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 }
-
 // ========== OPTIONS ==========
 model Option {
   id          Int      @id @default(autoincrement())
