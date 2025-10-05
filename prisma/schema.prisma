@@ -33,6 +33,7 @@ model Company {
   description String?
   
   customers   Customer[]
+  orders      Order[]     // ✅ اضافه شد
   
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
@@ -52,11 +53,10 @@ model Customer {
   orders      Order[]
   calls       Call[]
   createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt     // ✅ اصلاح شد
+  updatedAt   DateTime  @updatedAt
 
   @@index([companyId])
 }
-
 
 // ========== CALLS ==========
 model Call {
@@ -88,6 +88,7 @@ model Contact {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 }
+
 // ========== OPTIONS ==========
 model Option {
   id          Int      @id @default(autoincrement())
@@ -127,7 +128,6 @@ model ProductOption {
   
   maxNo     Int     @default(1)
   
-  // ✅ relation جدید
   orderItemProductOptions OrderItemProductOption[]
   
   createdAt DateTime @default(now())
@@ -139,8 +139,13 @@ model ProductOption {
 // ========== ORDERS ==========
 model Order {
   id          Int      @id @default(autoincrement())
-  customerId  Int
-  customer    Customer @relation(fields: [customerId], references: [id])
+  
+  // ✅ تغییر: هر دو nullable شدند
+  customerId  Int?
+  customer    Customer? @relation(fields: [customerId], references: [id])
+  
+  companyId   Int?     // ✅ اضافه شد
+  company     Company?  @relation(fields: [companyId], references: [id]) // ✅ اضافه شد
   
   description String?
   status      String   @default("open") // open, approved, finished, canceled
@@ -154,6 +159,10 @@ model Order {
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  
+  // ✅ اضافه کردن index برای بهبود کارایی
+  @@index([customerId])
+  @@index([companyId])
 }
 
 model OrderItem {
@@ -178,12 +187,10 @@ model OrderItemProductOption {
   orderItemId      Int
   orderItem        OrderItem     @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
   
-  // ✅ فیلد قدیمی رو نگه میداریم
-  optionId         Int?          // nullable کردیم
+  optionId         Int?
   option           Option?       @relation(fields: [optionId], references: [id])
   
-  // ✅ فیلد جدید رو اضافه میکنیم
-  productOptionId  Int?          // nullable
+  productOptionId  Int?
   productOption    ProductOption? @relation(fields: [productOptionId], references: [id])
   
   selection        String
@@ -202,7 +209,7 @@ model OrderHistory {
   changedBy String
   changedAt DateTime @default(now())
   
-  oldData   String?  // JSON - حذف @db.Text
-  newData   String   // JSON - حذف @db.Text
-  changes   String?  // JSON - حذف @db.Text
+  oldData   String?  // JSON
+  newData   String   // JSON
+  changes   String?  // JSON
 }

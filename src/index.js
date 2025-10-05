@@ -483,51 +483,17 @@ app.delete(
 // Get all customers
 app.get('/api/customers', authenticateToken, async (req, res) => {
   try {
-    // ✅ دریافت مشتریان حقیقی
-    const individuals = await prisma.customer.findMany({
+    const customers = await prisma.customer.findMany({
       include: {
         company: true,
         contacts: true,
       },
+      orderBy: {
+        createdAt: 'desc',
+      },
     });
 
-    // ✅ دریافت شرکت‌ها (کمپانی‌ها)
-    const companies = await prisma.company.findMany();
-
-    // ✅ ترکیب هر دو لیست
-    const allCustomers = [
-      // شرکت‌ها
-      ...companies.map((company) => ({
-        id: company.id,
-        name: company.name,
-        serial: company.serial,
-        taxCode: company.taxCode,
-        phone: company.phone,
-        address: company.address,
-        description: company.description,
-        type: 'company',
-        createdAt: company.createdAt,
-        updatedAt: company.updatedAt,
-      })),
-      // مشتریان حقیقی
-      ...individuals.map((customer) => ({
-        id: customer.id,
-        name: customer.name,
-        mobile: customer.mobile,
-        position: customer.position,
-        phone: customer.mobile,
-        address: null,
-        description: customer.description,
-        companyId: customer.companyId,
-        company: customer.company,
-        contacts: customer.contacts,
-        type: 'individual',
-        createdAt: customer.createdAt,
-        updatedAt: customer.updatedAt,
-      })),
-    ];
-
-    res.json(allCustomers);
+    res.json(customers);
   } catch (error) {
     console.error('❌ Error fetching customers:', error);
     res.status(500).json({ error: 'خطا در دریافت مشتریان' });
@@ -538,52 +504,22 @@ app.get('/api/customers', authenticateToken, async (req, res) => {
 app.get('/api/customers/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const type = req.query.type;
 
-    console.log('📥 Fetching customer:', { id, type });
+    console.log('📥 Fetching customer:', id);
 
-    if (type === 'company') {
-      const company = await prisma.company.findUnique({
-        where: { id: parseInt(id) },
-      });
+    const customer = await prisma.customer.findUnique({
+      where: { id: parseInt(id) },
+      include: {
+        company: true,
+        contacts: true,
+      },
+    });
 
-      if (!company) {
-        return res.status(404).json({ error: 'شرکت یافت نشد' });
-      }
-
-      res.json({
-        ...company,
-        type: 'company',
-      });
-    } else {
-      const customer = await prisma.customer.findUnique({
-        where: { id: parseInt(id) },
-        include: {
-          company: true,
-          contacts: true,
-        },
-      });
-
-      if (!customer) {
-        return res.status(404).json({ error: 'مشتری یافت نشد' });
-      }
-
-      res.json({
-        id: customer.id,
-        name: customer.name,
-        mobile: customer.mobile,
-        position: customer.position,
-        phone: customer.mobile,
-        address: null,
-        description: customer.description,
-        companyId: customer.companyId,
-        company: customer.company,
-        contacts: customer.contacts,
-        type: 'individual',
-        createdAt: customer.createdAt,
-        updatedAt: customer.updatedAt,
-      });
+    if (!customer) {
+      return res.status(404).json({ error: 'مشتری یافت نشد' });
     }
+
+    res.json(customer);
   } catch (error) {
     console.error('❌ Error fetching customer:', error);
     res.status(500).json({ error: 'خطا در دریافت مشتری' });
@@ -603,9 +539,6 @@ app.post(
         mobile,
         address,
         description,
-        type,
-        serial,
-        taxCode,
         companyId,
         position,
         contacts,
@@ -613,60 +546,31 @@ app.post(
 
       console.log('📥 Creating customer:', req.body);
 
-      if (type === 'company') {
-        const company = await prisma.company.create({
-          data: {
-            name,
-            serial: serial || null,
-            taxCode: taxCode || null,
-            phone: phone || null,
-            address: address || null,
-            description: description || null,
-          },
-        });
+      const customer = await prisma.customer.create({
+        data: {
+          name,
+          mobile: mobile || phone || null,
+          position: position || null,
+          description: description || null,
+          companyId: companyId ? parseInt(companyId) : null,
+          contacts: contacts
+            ? {
+                create: contacts.map((c) => ({
+                  title: c.title,
+                  content: c.content,
+                  type: c.type,
+                  isNew: c.isNew !== undefined ? c.isNew : 1,
+                })),
+              }
+            : undefined,
+        },
+        include: {
+          company: true,
+          contacts: true,
+        },
+      });
 
-        res.status(200).json({
-          ...company,
-          type: 'company',
-        });
-      } else {
-        const customer = await prisma.customer.create({
-          data: {
-            name,
-            mobile: mobile || phone || null,
-            position: position || null,
-            description: description || null,
-            companyId: companyId ? parseInt(companyId) : null,
-            contacts: contacts
-              ? {
-                  create: contacts.map((c) => ({
-                    title: c.title,
-                    content: c.content,
-                    type: c.type,
-                    isNew: c.isNew !== undefined ? c.isNew : 1,
-                  })),
-                }
-              : undefined,
-          },
-          include: {
-            company: true,
-            contacts: true,
-          },
-        });
-
-        res.status(200).json({
-          id: customer.id,
-          name: customer.name,
-          mobile: customer.mobile,
-          position: customer.position,
-          description: customer.description,
-          companyId: customer.companyId,
-          type: 'individual',
-          contacts: customer.contacts,
-          createdAt: customer.createdAt,
-          updatedAt: customer.updatedAt,
-        });
-      }
+      res.status(200).json(customer);
     } catch (error) {
       console.error('❌ Error creating customer:', error);
       res.status(500).json({ error: 'خطا در ایجاد مشتری' });
@@ -688,76 +592,44 @@ app.put(
         mobile,
         address,
         description,
-        type,
-        serial,
-        taxCode,
         companyId,
         position,
         contacts,
       } = req.body;
 
-      console.log('📥 Updating customer:', { id, type, data: req.body });
+      console.log('📥 Updating customer:', { id, data: req.body });
 
-      if (type === 'company') {
-        const company = await prisma.company.update({
-          where: { id: parseInt(id) },
-          data: {
-            name,
-            serial: serial || null,
-            taxCode: taxCode || null,
-            phone: phone || null,
-            address: address || null,
-            description: description || null,
-          },
-        });
+      // حذف contacts قدیمی
+      await prisma.contact.deleteMany({
+        where: { customerId: parseInt(id) },
+      });
 
-        res.json({
-          ...company,
-          type: 'company',
-        });
-      } else {
-        await prisma.contact.deleteMany({
-          where: { customerId: parseInt(id) },
-        });
+      const customer = await prisma.customer.update({
+        where: { id: parseInt(id) },
+        data: {
+          name,
+          mobile: mobile || phone || null,
+          position: position || null,
+          description: description || null,
+          companyId: companyId ? parseInt(companyId) : null,
+          contacts: contacts
+            ? {
+                create: contacts.map((c) => ({
+                  title: c.title,
+                  content: c.content,
+                  type: c.type,
+                  isNew: c.isNew !== undefined ? c.isNew : 1,
+                })),
+              }
+            : undefined,
+        },
+        include: {
+          company: true,
+          contacts: true,
+        },
+      });
 
-        const customer = await prisma.customer.update({
-          where: { id: parseInt(id) },
-          data: {
-            name,
-            mobile: mobile || phone || null,
-            position: position || null,
-            description: description || null,
-            companyId: companyId ? parseInt(companyId) : null,
-            contacts: contacts
-              ? {
-                  create: contacts.map((c) => ({
-                    title: c.title,
-                    content: c.content,
-                    type: c.type,
-                    isNew: c.isNew !== undefined ? c.isNew : 1,
-                  })),
-                }
-              : undefined,
-          },
-          include: {
-            company: true,
-            contacts: true,
-          },
-        });
-
-        res.json({
-          id: customer.id,
-          name: customer.name,
-          mobile: customer.mobile,
-          position: customer.position,
-          description: customer.description,
-          companyId: customer.companyId,
-          type: 'individual',
-          contacts: customer.contacts,
-          createdAt: customer.createdAt,
-          updatedAt: customer.updatedAt,
-        });
-      }
+      res.json(customer);
     } catch (error) {
       console.error('❌ Error updating customer:', error);
       res.status(500).json({ error: 'خطا در بروزرسانی مشتری' });
@@ -776,7 +648,6 @@ app.delete(
 
       console.log('🗑️ DELETE /api/customers/' + id);
 
-      // ✅ بررسی وجود مشتری
       const customer = await prisma.customer.findUnique({
         where: { id: parseInt(id) },
       });
@@ -1590,6 +1461,12 @@ app.get('/api/orders/:id', authenticateToken, async (req, res) => {
             },
           },
         },
+        company: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
         orderItems: {
           include: {
             product: {
@@ -1622,6 +1499,7 @@ app.get('/api/orders/:id', authenticateToken, async (req, res) => {
     const formattedOrder = {
       id: order.id,
       customerId: order.customerId,
+      companyId: order.companyId,
       customerName: order.customer.name,
       username: order.createdBy,
       description: order.description,
@@ -1708,11 +1586,12 @@ app.post(
   authorizeRoles('admin', 'manager', 'user'),
   async (req, res) => {
     try {
-      const { customerId, description, status, orderItems } = req.body;
-
+      const { companyId, customerId, description, status, orderItems } =
+        req.body;
       console.log('📥 POST /api/orders');
       console.log('📦 Data:', {
         customerId,
+        companyId,
         description,
         status,
         itemsCount: orderItems?.length,
@@ -1727,10 +1606,10 @@ app.post(
           .status(400)
           .json({ error: 'حداقل یک محصول باید انتخاب شود' });
       }
-
       const order = await prisma.order.create({
         data: {
           customerId: parseInt(customerId),
+          companyId: parseInt(companyId),
           description: description || '',
           status: status || 'open',
           orderTime: Math.floor(Date.now() / 1000),
