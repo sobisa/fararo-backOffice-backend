@@ -31,10 +31,10 @@ model Company {
   phone       String?
   address     String?
   description String?
-  
-  customers   Customer[]
-  orders      Order[]     // ✅ اضافه شد
-  
+
+  customers   Customer[] @relation("CompanyCustomers")
+  orders      Order[]
+
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 }
@@ -47,15 +47,13 @@ model Customer {
   type        String?
   position    String?
   description String?
-  companyId   Int?
-  company     Company?  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  companies   Company[] @relation("CompanyCustomers")
   contacts    Contact[]
   orders      Order[]
   calls       Call[]
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
-
-  @@index([companyId])
 }
 
 // ========== CALLS ==========

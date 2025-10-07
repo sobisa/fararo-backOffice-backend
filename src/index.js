@@ -354,7 +354,7 @@ app.get('/api/companies', authenticateToken, async (req, res) => {
   try {
     const companies = await prisma.company.findMany({
       include: {
-        customers: true,
+        customers: true, // ✅ در حالت implicit M2M همچنان درست کار می‌کنه
       },
     });
     res.json(companies);
@@ -481,11 +481,12 @@ app.delete(
 // ========== CUSTOMER ROUTES ==========
 
 // Get all customers
+// Get all customers
 app.get('/api/customers', authenticateToken, async (req, res) => {
   try {
     const customers = await prisma.customer.findMany({
       include: {
-        company: true,
+        companies: true, // ✅ بجای company
         contacts: true,
       },
       orderBy: {
@@ -505,12 +506,10 @@ app.get('/api/customers/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
 
-    console.log('📥 Fetching customer:', id);
-
     const customer = await prisma.customer.findUnique({
       where: { id: parseInt(id) },
       include: {
-        company: true,
+        companies: true, // ✅
         contacts: true,
       },
     });
@@ -539,7 +538,7 @@ app.post(
         mobile,
         address,
         description,
-        companyId,
+        companyIds,
         position,
         contacts,
       } = req.body;
@@ -549,10 +548,12 @@ app.post(
       const customer = await prisma.customer.create({
         data: {
           name,
-          mobile: mobile || phone || null,
-          position: position || null,
-          description: description || null,
-          companyId: companyId ? parseInt(companyId) : null,
+          mobile,
+          position,
+          description,
+          companies: companyIds
+            ? { connect: companyIds.map((cid) => ({ id: parseInt(cid) })) }
+            : undefined,
           contacts: contacts
             ? {
                 create: contacts.map((c) => ({
@@ -565,7 +566,7 @@ app.post(
             : undefined,
         },
         include: {
-          company: true,
+          companies: true,
           contacts: true,
         },
       });
@@ -592,7 +593,7 @@ app.put(
         mobile,
         address,
         description,
-        companyId,
+        companyIds, // 👈 آرایه‌ای از id شرکت‌ها
         position,
         contacts,
       } = req.body;
@@ -611,7 +612,11 @@ app.put(
           mobile: mobile || phone || null,
           position: position || null,
           description: description || null,
-          companyId: companyId ? parseInt(companyId) : null,
+          companies: companyIds
+            ? {
+                set: companyIds.map((cid) => ({ id: parseInt(cid) })),
+              }
+            : undefined,
           contacts: contacts
             ? {
                 create: contacts.map((c) => ({
@@ -624,7 +629,7 @@ app.put(
             : undefined,
         },
         include: {
-          company: true,
+          companies: true, // 👈 اصلاح شد
           contacts: true,
         },
       });
@@ -1368,12 +1373,11 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
     const orders = await prisma.order.findMany({
       include: {
         customer: {
-          select: {
-            id: true,
-            name: true,
-            mobile: true,
-            company: {
+          include: {
+            companies: {
+              // ← نام فیلد relation در مدل جدید
               select: {
+                id: true,
                 name: true,
               },
             },
@@ -1382,10 +1386,7 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
         orderItems: {
           include: {
             product: {
-              select: {
-                id: true,
-                name: true,
-              },
+              select: { id: true, name: true },
             },
             orderItemProductOptions: {
               include: {
@@ -1402,9 +1403,7 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
           },
         },
       },
-      orderBy: {
-        id: 'desc',
-      },
+      orderBy: { id: 'desc' },
     });
 
     const formattedOrders = orders.map((order) => ({
@@ -1450,31 +1449,18 @@ app.get('/api/orders/:id', authenticateToken, async (req, res) => {
       where: { id: parseInt(id) },
       include: {
         customer: {
-          select: {
-            id: true,
-            name: true,
-            mobile: true,
-            company: {
-              select: {
-                name: true,
-              },
-            },
-          },
-        },
-        company: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        orderItems: {
           include: {
-            product: {
+            companies: {
               select: {
                 id: true,
                 name: true,
               },
             },
+          },
+        },
+        orderItems: {
+          include: {
+            product: { select: { id: true, name: true } },
             orderItemProductOptions: {
               include: {
                 option: {
@@ -1499,8 +1485,9 @@ app.get('/api/orders/:id', authenticateToken, async (req, res) => {
     const formattedOrder = {
       id: order.id,
       customerId: order.customerId,
-      companyId: order.companyId,
       customerName: order.customer.name,
+      companies: order.customer.companies,
+      companyId: order.companyId,
       username: order.createdBy,
       description: order.description,
       status: order.status,
@@ -1588,24 +1575,7 @@ app.post(
     try {
       const { companyId, customerId, description, status, orderItems } =
         req.body;
-      console.log('📥 POST /api/orders');
-      console.log('📦 Data:', {
-        customerId,
-        companyId,
-        description,
-        status,
-        itemsCount: orderItems?.length,
-      });
 
-      if (!customerId) {
-        return res.status(400).json({ error: 'شناسه مشتری الزامی است' });
-      }
-
-      if (!orderItems || orderItems.length === 0) {
-        return res
-          .status(400)
-          .json({ error: 'حداقل یک محصول باید انتخاب شود' });
-      }
       const order = await prisma.order.create({
         data: {
           customerId: parseInt(customerId),
@@ -1622,31 +1592,15 @@ app.post(
                 description: item.description || '',
               };
 
-              if (
-                item.orderItemProductOptions &&
-                item.orderItemProductOptions.length > 0
-              ) {
+              if (item.orderItemProductOptions?.length > 0) {
                 orderItemData.orderItemProductOptions = {
-                  create: item.orderItemProductOptions.map((opt) => {
-                    let selectionString;
-
-                    if (typeof opt.selection === 'string') {
-                      selectionString = opt.selection;
-                    } else if (typeof opt.selection === 'number') {
-                      selectionString = opt.selection.toString();
-                    } else if (Array.isArray(opt.selection)) {
-                      selectionString = JSON.stringify(opt.selection);
-                    } else if (typeof opt.selection === 'object') {
-                      selectionString = JSON.stringify(opt.selection);
-                    } else {
-                      selectionString = '';
-                    }
-
-                    return {
-                      optionId: parseInt(opt.productOptionId),
-                      selection: selectionString,
-                    };
-                  }),
+                  create: item.orderItemProductOptions.map((opt) => ({
+                    optionId: parseInt(opt.productOptionId),
+                    selection:
+                      typeof opt.selection === 'string'
+                        ? opt.selection
+                        : JSON.stringify(opt.selection),
+                  })),
                 };
               }
 
@@ -1656,31 +1610,13 @@ app.post(
         },
         include: {
           customer: {
-            select: {
-              id: true,
-              name: true,
-              mobile: true,
-            },
+            select: { id: true, name: true, mobile: true, companies: true },
           },
           orderItems: {
             include: {
-              product: {
-                select: {
-                  id: true,
-                  name: true,
-                },
-              },
+              product: { select: { id: true, name: true } },
               orderItemProductOptions: {
-                include: {
-                  option: {
-                    select: {
-                      id: true,
-                      title: true,
-                      model: true,
-                      states: true,
-                    },
-                  },
-                },
+                include: { option: true },
               },
             },
           },
