@@ -221,7 +221,7 @@ app.post(
 app.get(
   '/api/users',
   authenticateToken,
-  authorizeRoles('admin'),
+  authorizeRoles('admin', 'manager'),
   async (req, res) => {
     try {
       const users = await prisma.user.findMany({
@@ -246,7 +246,7 @@ app.get(
 app.post(
   '/api/users',
   authenticateToken,
-  authorizeRoles('admin'),
+  authorizeRoles('admin', 'manager'),
   async (req, res) => {
     try {
       const { username, password, name, role, enabled } = req.body;
@@ -688,8 +688,9 @@ app.get('/api/calls', authenticateToken, async (req, res) => {
             id: true,
             name: true,
             mobile: true,
-            company: {
+            companies: {
               select: {
+                id: true,
                 name: true,
               },
             },
@@ -723,8 +724,9 @@ app.get('/api/calls/:id', authenticateToken, async (req, res) => {
             id: true,
             name: true,
             mobile: true,
-            company: {
+            companies: {
               select: {
+                id: true,
                 name: true,
               },
             },
@@ -796,8 +798,9 @@ app.post(
               id: true,
               name: true,
               mobile: true,
-              company: {
+              companies: {
                 select: {
+                  id: true,
                   name: true,
                 },
               },
@@ -858,8 +861,9 @@ app.put(
               id: true,
               name: true,
               mobile: true,
-              company: {
+              companies: {
                 select: {
+                  id: true,
                   name: true,
                 },
               },
