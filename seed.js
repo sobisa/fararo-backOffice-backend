@@ -13,8 +13,8 @@ async function main() {
   const hashedPasswordAdmin = await bcrypt.hash('1234', 10);
 
   await prisma.user.upsert({
-    where: { username: 'fn' },
-    update: { role: 'admin' },
+    where: { username: 'p2' },
+    update: { role: 'manager', name: 'پرستو سرافرازی' },
     create: {
       username: 'sobi',
       password: hashedPasswordAdmin,
